@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<title>Blind Chess</title>
+	</head>
+	<body>
+		<h1>Hello!</h1>
+		<button id="createOffer">Create offer</button><br>
+		<textarea id="offer"></textarea><br>
+		<button id="createAnswer">Create answer</button><br>
+		<textarea id="answer"></textarea><br>
+		<button id="acceptAnswer">Accept answer</button><br><br>
+		<input id="message" placeholder="Message"><button id="send" disabled>Send</button>
+		<ol id="messages"></ol>
+		<script>
+			const offerBox = document.getElementById("offer");
+			const answerBox = document.getElementById("answer");
+			const messageBox = document.getElementById("message");
+			const sendButton = document.getElementById("send");
+			const messages = document.getElementById("messages");
+
+			const connection = new RTCPeerConnection({
+				"iceServers": [
+					{
+						"urls": "stun:stun.l.google.com:19302",
+					},
+				],
+			});
+			connection.addEventListener("icecandidate", e => {
+				console.log("icecandidate", this, e);
+				if (e.candidate == null) {
+					offerBox.value = JSON.stringify(connection.localDescription);
+				}
+			}, false);
+			/**
+			 * @type RTCDataChannel
+			 */
+			let dataChannel;
+
+			async function onCreateOffer() {
+				dataChannel = connection.createDataChannel("message");
+				dataChannel.addEventListener("open", e => { console.log("open data channel", this, e); sendButton.disabled = false; }, false);
+				dataChannel.addEventListener("message", e => addMessage(e.data), false);
+				const offer = await connection.createOffer();
+				await connection.setLocalDescription(offer);
+				offerBox.value = JSON.stringify(offer);
+			}
+
+			async function onCreateAnswer() {
+				connection.addEventListener("datachannel", e => {
+					console.log(`Accepting data channel ${e.channel.label}`);
+					dataChannel = e.channel;
+					dataChannel.addEventListener("open", e => { console.log("open data channel", this, e); sendButton.disabled = false; }, false);
+					dataChannel.addEventListener("message", e => addMessage(e.data), false);
+				}, false);
+				const offer = JSON.parse(offerBox.value);
+				await connection.setRemoteDescription(new RTCSessionDescription(offer));
+				const answer = await connection.createAnswer();
+				await connection.setLocalDescription(answer);
+				answerBox.value = JSON.stringify(answer);
+			}
+
+			async function onAcceptAnswer() {
+				const answer = JSON.parse(answerBox.value);
+				await connection.setRemoteDescription(new RTCSessionDescription(answer));
+				console.log("accepted", connection);
+			}
+
+			async function onSendMessage() {
+				const message = messageBox.value;
+
+				dataChannel.send(message);
+
+				messageBox.value = "";
+				addMessage(message);
+			}
+			function addMessage(message) {
+				const messageElement = document.createElement("li");
+				messageElement.innerText = message;
+				messages.prepend(messageElement);
+			}
+
+			document.getElementById("createOffer").addEventListener("click", onCreateOffer, false);
+			document.getElementById("createAnswer").addEventListener("click", onCreateAnswer, false);
+			document.getElementById("acceptAnswer").addEventListener("click", onAcceptAnswer, false);
+			sendButton.addEventListener("click", onSendMessage, false);
+		</script>
+	</body>
+</html>
