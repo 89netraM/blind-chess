@@ -1,0 +1,5 @@
+[*]
+indent_style = tab
+
+[*.cs]
+max_line_length = 120
