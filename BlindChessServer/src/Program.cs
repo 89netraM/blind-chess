@@ -1,42 +1,28 @@
 using System;
-using System.Threading;
-using BlindChessServer;
+using BlindChessServer.GamesManager;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddSingleton<GamesManager>();
+
 var app = builder.Build();
 
 app.UseWebSockets();
-
-app.MapGet("/", () => "Hello World!");
 app.Map(
-	"/game",
-	async (HttpContext context, ILogger<Program> logger) =>
+	"/game/{gameId}",
+	async (Guid gameId, GamesManager gamesManager, HttpContext context) =>
 	{
-		using var _ = logger.BeginScope("WebSocket request");
 		if (!context.WebSockets.IsWebSocketRequest)
 		{
-			logger.LogInformation("Non WebSocket request to WebSocket endpoint");
-			return Results.BadRequest("");
+			return Results.BadRequest("Connect using WebSocket");
 		}
 
-		logger.LogInformation("Accepting WebSocket request");
-		await using var connection = await context.WebSockets.AcceptWebSocketConnectionAsync();
-
-		while (connection.IsOpen)
+		if (!await gamesManager.TryJoin(gameId, context.WebSockets))
 		{
-			var message = await connection.ReceiveAsync<Message>(CancellationToken.None);
-			Console.WriteLine(message);
-			if (message is null)
-			{
-				logger.LogWarning("Received null message");
-				continue;
-			}
-
-			logger.LogInformation("{Id}: {Text}", message.Id, message.Text);
-			await connection.SendAsync(new Message(message.Id + 1, message.Text));
+			return Results.BadRequest($"Cannot join game {gameId}");
 		}
 
 		return Results.Empty;

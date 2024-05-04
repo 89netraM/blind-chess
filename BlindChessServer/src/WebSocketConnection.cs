@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Net.WebSockets;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
@@ -10,12 +11,21 @@ namespace BlindChessServer;
 
 public class WebSocketConnection(WebSocket webSocket) : IAsyncDisposable
 {
+	private static readonly JsonSerializerOptions jsonSerializerOptions =
+		new()
+		{
+			AllowTrailingCommas = true,
+			PropertyNameCaseInsensitive = true,
+			PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+			Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase), },
+		};
+
 	public bool IsOpen => webSocket.State == WebSocketState.Open;
 
 	public async Task SendAsync<T>(T message, CancellationToken cancellationToken = default)
 	{
 		using var stream = new MemoryStream();
-		await JsonSerializer.SerializeAsync(stream, message, cancellationToken: cancellationToken);
+		await JsonSerializer.SerializeAsync(stream, message, jsonSerializerOptions, cancellationToken);
 		stream.Position = 0;
 
 		await CopyAsync(
@@ -43,10 +53,10 @@ public class WebSocketConnection(WebSocket webSocket) : IAsyncDisposable
 		);
 		stream.Position = 0;
 
-		return await JsonSerializer.DeserializeAsync<T>(stream, cancellationToken: cancellationToken);
+		return await JsonSerializer.DeserializeAsync<T>(stream, jsonSerializerOptions, cancellationToken);
 	}
 
-	public async Task CopyAsync(
+	private static async Task CopyAsync(
 		Func<Memory<byte>, CancellationToken, Task<(int, bool)>> read,
 		Func<Memory<byte>, bool, CancellationToken, Task> write,
 		CancellationToken cancellationToken
@@ -63,14 +73,18 @@ public class WebSocketConnection(WebSocket webSocket) : IAsyncDisposable
 
 	public async ValueTask DisposeAsync()
 	{
-		if (webSocket.State is WebSocketState.Open)
+		try
 		{
-			await webSocket.CloseAsync(
-				WebSocketCloseStatus.NormalClosure,
-				"Connection disposed",
-				CancellationToken.None
-			);
+			if (webSocket.State is WebSocketState.Open)
+			{
+				await webSocket.CloseAsync(
+					WebSocketCloseStatus.NormalClosure,
+					"Connection disposed",
+					CancellationToken.None
+				);
+			}
 		}
+		catch { }
 		webSocket.Dispose();
 	}
 }
